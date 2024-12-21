@@ -24,6 +24,31 @@ HARVEST_MAP = [
 ]
 
 CLEANUP_MAP = [
+    "@@@@@@@@@@@@@@@@@",
+    "@HHHHHH     BBBB@",
+    "@RRRRRR    BBBBB@",
+    "@RRRRR  P   BBBB@",
+    "@RRRRR   P BBBBB@",
+    "@HHHHH      BBBB@",
+    "@RRRRR     BBBBB@",
+    "@HHHHHHSSSSSBBBB@",
+    "@HHHHHHSSSSSBBBB@",
+    "@RRRRR  P P BBBB@",
+    "@HHHHH  P  BBBBB@",
+    "@RRRRRR   P BBBB@",
+    "@HHHHHH P  BBBBB@",
+    "@RRRRR      BBBB@",
+    "@HHHH   P  BBBBB@",
+    "@RRRRR      BBBB@",
+    "@HHHHH P P BBBBB@",
+    "@RRRRR      BBBB@",
+    "@HHHH      BBBBB@",
+    "@@@@@@@@@@@@@@@@@",
+]
+
+# CLEANUP_MAP = [row.replace("H", "R") for row in CLEANUP_MAP]
+
+CLEANUP_MAP_1 = [
     "@@@@@@@@@@@@@@@@@@",
     "@RRRRRR     BBBBB@",
     "@HHHHHH      BBBB@",

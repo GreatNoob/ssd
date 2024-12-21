@@ -6,6 +6,8 @@ import numpy as np
 import gymnasium as gym
 from uuid import uuid4
 from gymnasium.spaces import Box, Discrete, Dict
+from pettingzoo import ParallelEnv
+import functools
 
 _MAP_ENV_ACTIONS = {
     "MOVE_LEFT": [0, -1],  # Move left
@@ -56,7 +58,7 @@ DEFAULT_COLOURS = {
 #         |
 
 
-class MapEnv(gym.Env):
+class MapEnv(ParallelEnv):
     ENVS = []
     def __init__(
         self,
@@ -114,11 +116,12 @@ class MapEnv(gym.Env):
         self.beam_pos = []
         self.uuid = uuid4()
         print("UUID", self.uuid)
-        self.agents = {}
+        self.agents_ = {}
 
         # returns the agent at a desired position if there is one
         self.pos_dict = {}
         self.spawn_points = []  # where agents can appear
+        self.episode_count = 0
 
         self.wall_points = []
         for row in range(self.base_map.shape[0]):
@@ -129,8 +132,15 @@ class MapEnv(gym.Env):
                     self.wall_points.append([row, col])
         self.setup_agents()
 
-    @property
-    def observation_space(self):
+    @functools.lru_cache(maxsize=None)
+    def observation_space(self, agent):
+        return Box(
+                low=0,
+                high=255,
+                shape=(2 * self.view_len + 1, 2 * self.view_len + 1, 3),
+                # shape=(len(self.base_map) + self.view_len * 2, len(self.base_map[0]) + self.view_len * 2, 3),
+                dtype=np.uint8,
+            )
         obs_space = {
             "curr_obs": Box(
                 low=0,
@@ -233,21 +243,21 @@ class MapEnv(gym.Env):
         dones: dict indicating whether each agent is done
         info: dict to pass extra info to gym
         """
-
         self.beam_pos = []
         agent_actions = {}
+        self.episode_count += 1
         for agent_id, action in actions.items():
-            agent_action = self.agents[agent_id].action_map(action)
+            agent_action = self.agents_[agent_id].action_map(action)
             agent_actions[agent_id] = agent_action
 
         # Remove agents from color map
-        for agent in self.agents.values():
+        for agent in self.agents_.values():
             row, col = agent.pos[0], agent.pos[1]
             self.single_update_world_color_map(row, col, self.world_map[row, col])
 
         self.update_moves(agent_actions)
 
-        for agent in self.agents.values():
+        for agent in self.agents_.values():
             pos = agent.pos
             new_char = agent.consume(self.world_map[pos[0], pos[1]])
             self.single_update_map(pos[0], pos[1], new_char)
@@ -260,7 +270,7 @@ class MapEnv(gym.Env):
 
         map_with_agents = self.get_map_with_agents()
         # Add agents to color map
-        for agent in self.agents.values():
+        for agent in self.agents_.values():
             row, col = agent.pos[0], agent.pos[1]
             # Firing beams have priority over agents and should cover them
             if self.world_map[row, col] not in [b"F", b"C"]:
@@ -270,7 +280,7 @@ class MapEnv(gym.Env):
         rewards = {}
         dones = {}
         infos = {}
-        for agent in self.agents.values():
+        for agent in self.agents_.values():
             agent.full_map = map_with_agents
             rgb_arr = self.color_view(agent)
             # concatenate on the prev_actions to the observations
@@ -287,7 +297,7 @@ class MapEnv(gym.Env):
                 }
                 agent.prev_visible_agents = visible_agents
             else:
-                observations[agent.agent_id] = {"curr_obs": rgb_arr}
+                observations[agent.agent_id] = rgb_arr
             rewards[agent.agent_id] = agent.compute_reward()
             dones[agent.agent_id] = agent.get_done()
             infos[agent.agent_id] = {}
@@ -307,9 +317,14 @@ class MapEnv(gym.Env):
             rewards = temp_rewards
 
         dones["__all__"] = np.any(list(dones.values()))
-        return observations, rewards, dones, infos
+        if self.episode_count >= 1000:
+            truncations = {agent: True for agent in self.agents_.keys()}
+        else:
+            truncations = {agent: False for agent in self.agents_.keys()}
 
-    def reset(self, seed=None):
+        return observations, rewards, truncations, truncations, infos
+
+    def reset(self, seed=None, options=None):
         """Reset the environment.
 
         This method is performed in between rollouts. It resets the state of
@@ -324,8 +339,9 @@ class MapEnv(gym.Env):
         if seed is not None:
             self.seed(seed)
             
+        self.episode_count = 0
         self.beam_pos = []
-        self.agents = {}
+        self.agents_ = {}
         self.setup_agents()
         self.reset_map()
         self.custom_map_update()
@@ -334,7 +350,7 @@ class MapEnv(gym.Env):
 
         observations = {}
         infos = {}
-        for agent in self.agents.values():
+        for agent in self.agents_.values():
             infos[agent.agent_id] = {}
             agent.full_map = map_with_agents
             rgb_arr = self.color_view(agent)
@@ -351,7 +367,8 @@ class MapEnv(gym.Env):
                 }
                 agent.prev_visible_agents = visible_agents
             else:
-                observations[agent.agent_id] = {"curr_obs": rgb_arr}
+                observations[agent.agent_id] = rgb_arr
+
         return observations, infos
 
     def seed(self, seed=None):
@@ -362,7 +379,7 @@ class MapEnv(gym.Env):
 
     @property
     def agent_pos(self):
-        return [agent.pos.tolist() for agent in self.agents.values()]
+        return [agent.pos.tolist() for agent in self.agents_.values()]
 
     def get_map_with_agents(self):
         """Gets a version of the environment map where generic
@@ -373,7 +390,7 @@ class MapEnv(gym.Env):
         """
         grid = np.copy(self.world_map)
 
-        for agent in self.agents.values():
+        for agent in self.agents_.values():
             char_id = agent.get_char_id()
 
             # If agent is not within map, skip.
@@ -411,15 +428,16 @@ class MapEnv(gym.Env):
             row + self.map_padding - self.view_len : row + self.map_padding + self.view_len + 1,
             col + self.map_padding - self.view_len : col + self.map_padding + self.view_len + 1,
         ]
-        if agent.orientation == "UP":
-            rotated_view = view_slice
-        elif agent.orientation == "LEFT":
-            rotated_view = np.rot90(view_slice)
-        elif agent.orientation == "DOWN":
-            rotated_view = np.rot90(view_slice, k=2)
-        elif agent.orientation == "RIGHT":
-            rotated_view = np.rot90(view_slice, k=1, axes=(1, 0))
-        return rotated_view
+        rotated_view = view_slice
+        # if agent.orientation == "UP":
+        #     rotated_view = view_slice
+        # elif agent.orientation == "LEFT":
+        #     rotated_view = np.rot90(view_slice)
+        # elif agent.orientation == "DOWN":
+        #     rotated_view = np.rot90(view_slice, k=2)
+        # elif agent.orientation == "RIGHT":
+        #     rotated_view = np.rot90(view_slice, k=1, axes=(1, 0))
+        return rotated_view.copy()
 
     def map_to_colors(self, mmap, color_map, rgb_arr, orientation="UP"):
         """Converts a map to an array of RGB values.
@@ -475,6 +493,7 @@ class MapEnv(gym.Env):
             filename: If a string is passed, will save the image
                       to disk at this location.
         """
+        return self.world_map_color
         rgb_arr = self.full_map_to_colors()
         # if mode == "human":
         #     plt.cla()
@@ -509,7 +528,7 @@ class MapEnv(gym.Env):
 
         reserved_slots = []
         for agent_id, action in agent_actions.items():
-            agent = self.agents[agent_id]
+            agent = self.agents_[agent_id]
             selected_action = self.all_actions[action]
             # TODO(ev) these two parts of the actions
             if "MOVE" in action or "STAY" in action:
@@ -526,7 +545,7 @@ class MapEnv(gym.Env):
         # now do the conflict resolution part of the process
 
         # helpful for finding the agent in the conflicting slot
-        agent_by_pos = {tuple(agent.pos): agent.agent_id for agent in self.agents.values()}
+        agent_by_pos = {tuple(agent.pos): agent.agent_id for agent in self.agents_.values()}
 
         # agent moves keyed by ids
         agent_moves = {}
@@ -583,8 +602,8 @@ class MapEnv(gym.Env):
                                 # find the agent that is currently at that spot and make sure
                                 # that the move is possible. If it won't be, remove it.
                                 conflicting_agent_id = agent_by_pos[tuple(move)]
-                                curr_pos = self.agents[agent_id].pos.tolist()
-                                curr_conflict_pos = self.agents[conflicting_agent_id].pos.tolist()
+                                curr_pos = self.agents_[agent_id].pos.tolist()
+                                curr_conflict_pos = self.agents_[conflicting_agent_id].pos.tolist()
                                 conflict_move = agent_moves.get(
                                     conflicting_agent_id, curr_conflict_pos
                                 )
@@ -608,16 +627,16 @@ class MapEnv(gym.Env):
                                     if (
                                         agent_moves[conflicting_agent_id] == curr_pos
                                         and move.tolist()
-                                        == self.agents[conflicting_agent_id].pos.tolist()
+                                        == self.agents_[conflicting_agent_id].pos.tolist()
                                     ):
                                         conflict_cell_free = False
 
                         # if the conflict cell is open, let one of the conflicting agents
                         # move into it
                         if conflict_cell_free:
-                            self.agents[agent_to_slot[index]].update_agent_pos(move)
+                            self.agents_[agent_to_slot[index]].update_agent_pos(move)
                             agent_by_pos = {
-                                tuple(agent.pos): agent.agent_id for agent in self.agents.values()
+                                tuple(agent.pos): agent.agent_id for agent in self.agents_.values()
                             }
                         # ------------------------------------
                         # remove all the other moves that would have conflicted
@@ -626,11 +645,11 @@ class MapEnv(gym.Env):
                         # all other agents now stay in place so update their moves
                         # to stay in place
                         for agent_id in all_agents_id:
-                            agent_moves[agent_id] = self.agents[agent_id].pos.tolist()
+                            agent_moves[agent_id] = self.agents_[agent_id].pos.tolist()
 
             # make the remaining un-conflicted moves
             while len(agent_moves.items()) > 0:
-                agent_by_pos = {tuple(agent.pos): agent.agent_id for agent in self.agents.values()}
+                agent_by_pos = {tuple(agent.pos): agent.agent_id for agent in self.agents_.values()}
                 num_moves = len(agent_moves.items())
                 moves_copy = agent_moves.copy()
                 del_keys = []
@@ -641,8 +660,8 @@ class MapEnv(gym.Env):
                         # find the agent that is currently at that spot and make sure
                         # that the move is possible. If it won't be, remove it.
                         conflicting_agent_id = agent_by_pos[tuple(move)]
-                        curr_pos = self.agents[agent_id].pos.tolist()
-                        curr_conflict_pos = self.agents[conflicting_agent_id].pos.tolist()
+                        curr_pos = self.agents_[agent_id].pos.tolist()
+                        curr_conflict_pos = self.agents_[conflicting_agent_id].pos.tolist()
                         conflict_move = agent_moves.get(conflicting_agent_id, curr_conflict_pos)
                         # Condition (1):
                         # a STAY command has been issued
@@ -663,7 +682,7 @@ class MapEnv(gym.Env):
                         elif conflicting_agent_id in moves_copy.keys():
                             if (
                                 agent_moves[conflicting_agent_id] == curr_pos
-                                and move == self.agents[conflicting_agent_id].pos.tolist()
+                                and move == self.agents_[conflicting_agent_id].pos.tolist()
                             ):
                                 del agent_moves[conflicting_agent_id]
                                 del agent_moves[agent_id]
@@ -671,7 +690,7 @@ class MapEnv(gym.Env):
                                 del_keys.append(conflicting_agent_id)
                     # this move is unconflicted so go ahead and move
                     else:
-                        self.agents[agent_id].update_agent_pos(move)
+                        self.agents_[agent_id].update_agent_pos(move)
                         del agent_moves[agent_id]
                         del_keys.append(agent_id)
 
@@ -680,7 +699,7 @@ class MapEnv(gym.Env):
                 # same cells will be covered
                 if len(agent_moves) == num_moves:
                     for agent_id, move in agent_moves.items():
-                        self.agents[agent_id].update_agent_pos(move)
+                        self.agents_[agent_id].update_agent_pos(move)
                     break
 
     def update_custom_moves(self, agent_actions):
@@ -695,7 +714,7 @@ class MapEnv(gym.Env):
             action = agent_actions[agent_id]
             # check its not a move based action
             if "MOVE" not in action and "STAY" not in action and "TURN" not in action:
-                agent = self.agents[agent_id]
+                agent = self.agents_[agent_id]
                 updates = self.custom_action(agent, action)
                 if len(updates) > 0:
                     self.update_map(updates)
@@ -772,7 +791,7 @@ class MapEnv(gym.Env):
         updates: (tuple (row, col, char))
             the cells that have been hit by the beam and what char will be placed there
         """
-        agent_by_pos = {tuple(agent.pos): agent_id for agent_id, agent in self.agents.items()}
+        agent_by_pos = {tuple(agent.pos): agent_id for agent_id, agent in self.agents_.items()}
         start_pos = np.asarray(firing_pos)
         firing_direction = ORIENTATIONS[firing_orientation]
         # compute the other two starting positions
@@ -807,7 +826,7 @@ class MapEnv(gym.Env):
                     # activate the agents hit function if needed
                     if [next_cell[0], next_cell[1]] in self.agent_pos:
                         agent_id = agent_by_pos[(next_cell[0], next_cell[1])]
-                        self.agents[agent_id].hit(fire_char)
+                        self.agents_[agent_id].hit(fire_char)
                         break
 
                     # check if the cell blocks beams. For example, waste blocks beams.
@@ -827,7 +846,7 @@ class MapEnv(gym.Env):
         """Returns a randomly selected spawn point."""
         spawn_index = 0
         is_free_cell = False
-        curr_agent_pos = [agent.pos.tolist() for agent in self.agents.values()]
+        curr_agent_pos = [agent.pos.tolist() for agent in self.agents_.values()]
         np.random.shuffle(self.spawn_points)
         for i, spawn_point in enumerate(self.spawn_points):
             if [spawn_point[0], spawn_point[1]] not in curr_agent_pos:
@@ -905,16 +924,16 @@ class MapEnv(gym.Env):
         visible_agents: list
             which agents can be seen by the agent with id "agent_id"
         """
-        agent_pos = self.agents[agent_id].pos
-        upper_lim = int(agent_pos[0] + self.agents[agent_id].row_size)
-        lower_lim = int(agent_pos[0] - self.agents[agent_id].row_size)
-        left_lim = int(agent_pos[1] - self.agents[agent_id].col_size)
-        right_lim = int(agent_pos[1] + self.agents[agent_id].col_size)
+        agent_pos = self.agents_[agent_id].pos
+        upper_lim = int(agent_pos[0] + self.agents_[agent_id].row_size)
+        lower_lim = int(agent_pos[0] - self.agents_[agent_id].row_size)
+        left_lim = int(agent_pos[1] - self.agents_[agent_id].col_size)
+        right_lim = int(agent_pos[1] + self.agents_[agent_id].col_size)
 
         # keep this sorted so the visibility matrix is always in order
         other_agent_pos = [
-            self.agents[other_agent_id].pos
-            for other_agent_id in sorted(self.agents.keys())
+            self.agents_[other_agent_id].pos
+            for other_agent_id in sorted(self.agents_.keys())
             if other_agent_id != agent_id
         ]
         return np.array(

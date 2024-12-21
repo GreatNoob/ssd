@@ -1,4 +1,5 @@
 import numpy as np
+import functools
 from numpy.random import rand
 
 from gymnasium.spaces import Discrete
@@ -23,11 +24,13 @@ CLEANUP_VIEW_SIZE = 7
 
 thresholdDepletion = 0.4
 thresholdRestoration = 0.0
-wasteSpawnProbability = 0.5
+wasteSpawnProbability = 0.2
 appleRespawnProbability = 0.05
 
 
 class CleanupEnv(MapEnv):
+    metadata = {"render_modes": ["human"], "name": "cleanup_v1"}
+
     def __init__(
         self,
         ascii_map=CLEANUP_MAP,
@@ -80,10 +83,11 @@ class CleanupEnv(MapEnv):
                     self.river_points.append([row, col])
 
         self.color_map.update(CLEANUP_COLORS)
+        self.render_mode = "rgb_array"
 
-    @property
-    def action_space(self):
-        return Discrete(9)
+    @functools.lru_cache(maxsize=None)
+    def action_space(self, agent):
+        return Discrete(6)
 
     def custom_reset(self):
         """Initialize the walls and the waste"""
@@ -131,7 +135,8 @@ class CleanupEnv(MapEnv):
         for i in range(self.num_agents_):
             agent_id = "agent-" + str(i)
             spawn_point = self.spawn_point()
-            rotation = self.spawn_rotation()
+            # rotation = self.spawn_rotation()
+            rotation = "UP"
             # grid = util.return_view(map_with_agents, spawn_point,
             #                         CLEANUP_VIEW_SIZE, CLEANUP_VIEW_SIZE)
             # agent = CleanupAgent(agent_id, spawn_point, rotation, grid)
@@ -142,7 +147,10 @@ class CleanupEnv(MapEnv):
                 map_with_agents,
                 view_len=CLEANUP_VIEW_SIZE,
             )
-            self.agents[agent_id] = agent
+            self.agents_[agent_id] = agent
+            
+        self.agents = list(self.agents_.keys())
+        self.possible_agents = list(self.agents_.keys())
 
     def spawn_apples_and_waste(self):
         spawn_points = []
