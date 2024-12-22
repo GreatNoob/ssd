@@ -176,7 +176,7 @@ class MapEnv(ParallelEnv):
         # Change dtype so that ray can put all observations into one flat batch
         # with the correct dtype.
         # See DictFlatteningPreprocessor in ray/rllib/models/preprocessors.py.
-        obs_space.dtype = np.uint8
+        # obs_space.dtype = np.uint8
         return obs_space
 
     def custom_reset(self):
@@ -428,15 +428,14 @@ class MapEnv(ParallelEnv):
             row + self.map_padding - self.view_len : row + self.map_padding + self.view_len + 1,
             col + self.map_padding - self.view_len : col + self.map_padding + self.view_len + 1,
         ]
-        rotated_view = view_slice
-        # if agent.orientation == "UP":
-        #     rotated_view = view_slice
-        # elif agent.orientation == "LEFT":
-        #     rotated_view = np.rot90(view_slice)
-        # elif agent.orientation == "DOWN":
-        #     rotated_view = np.rot90(view_slice, k=2)
-        # elif agent.orientation == "RIGHT":
-        #     rotated_view = np.rot90(view_slice, k=1, axes=(1, 0))
+        if agent.orientation == "UP":
+            rotated_view = view_slice
+        elif agent.orientation == "LEFT":
+            rotated_view = np.rot90(view_slice)
+        elif agent.orientation == "DOWN":
+            rotated_view = np.rot90(view_slice, k=2)
+        elif agent.orientation == "RIGHT":
+            rotated_view = np.rot90(view_slice, k=1, axes=(1, 0))
         return rotated_view.copy()
 
     def map_to_colors(self, mmap, color_map, rgb_arr, orientation="UP"):

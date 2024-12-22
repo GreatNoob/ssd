@@ -11,8 +11,8 @@ BASE_ACTIONS = {
     2: "MOVE_UP",  # Move up
     3: "MOVE_DOWN",  # Move down
     4: "STAY",  # don't move
-    # 5: "TURN_CLOCKWISE",  # Rotate counter clockwise
-    # 6: "TURN_COUNTERCLOCKWISE",
+    5: "TURN_CLOCKWISE",  # Rotate counter clockwise
+    6: "TURN_COUNTERCLOCKWISE",
 }  # Rotate clockwise
 
 
@@ -192,7 +192,7 @@ class HarvestAgent(Agent):
 
 
 CLEANUP_ACTIONS = BASE_ACTIONS.copy()
-CLEANUP_ACTIONS.update({5: "CLEAN"})  # Fire a penalty beam  # Fire a cleaning beam //5: "FIRE", 
+CLEANUP_ACTIONS.update({7: "CLEAN"})  # Fire a penalty beam  # Fire a cleaning beam //5: "FIRE", 
 
 
 class CleanupAgent(Agent):
@@ -219,6 +219,7 @@ class CleanupAgent(Agent):
             self.reward_this_turn -= 1
         if char == b"C":
             self.fire_count += 1
+            # self.reward_this_turn += 1
 
     def get_done(self):
         return False
@@ -232,7 +233,7 @@ class CleanupAgent(Agent):
         """Defines how an agent interacts with the char it is standing on"""
         if char == b"A":
             # print("eat!")
-            self.reward_this_turn += 10
+            self.reward_this_turn += 1
             self.consume_count += 1
             return b" "
         else:

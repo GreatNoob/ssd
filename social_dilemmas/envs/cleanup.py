@@ -87,7 +87,7 @@ class CleanupEnv(MapEnv):
 
     @functools.lru_cache(maxsize=None)
     def action_space(self, agent):
-        return Discrete(6)
+        return Discrete(8)
 
     def custom_reset(self):
         """Initialize the walls and the waste"""
@@ -135,8 +135,7 @@ class CleanupEnv(MapEnv):
         for i in range(self.num_agents_):
             agent_id = "agent-" + str(i)
             spawn_point = self.spawn_point()
-            # rotation = self.spawn_rotation()
-            rotation = "UP"
+            rotation = self.spawn_rotation()
             # grid = util.return_view(map_with_agents, spawn_point,
             #                         CLEANUP_VIEW_SIZE, CLEANUP_VIEW_SIZE)
             # agent = CleanupAgent(agent_id, spawn_point, rotation, grid)
