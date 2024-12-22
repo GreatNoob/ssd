@@ -122,7 +122,7 @@ class CustomCNN(torch_layers.BaseFeaturesExtractor):
 def main():
   """ Copy from meltingpot """
   # Config
-  env = CleanupEnv(num_agents=5, return_agent_actions=True)
+  env = CleanupEnv(num_agents=5)
   rollout_len = 1000
   total_timesteps = 2000000
   num_agents = env.max_num_agents
@@ -158,8 +158,6 @@ def main():
       base_class="stable_baselines3")
   env = vec_env.VecMonitor(env)
   env = vec_env.VecTransposeImage(env, True)
-  state, _ = env.reset()
-  print(state)
 
   eval_env = CleanupEnv(num_agents=5)
   eval_env = ss.frame_stack_v1(eval_env, num_frames)
