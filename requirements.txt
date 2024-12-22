@@ -7,3 +7,4 @@ opencv-python
 pettingzoo
 stable_baselines3
 sb3_contrib
+pygame
